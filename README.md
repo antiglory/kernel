@@ -1,2 +1,2 @@
 # my-os
-a simple OS made to x86
+a basic kernel made to x86
