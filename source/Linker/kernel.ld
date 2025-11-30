@@ -25,7 +25,7 @@ SECTIONS
         *(.rodata)
         *(.rodata.*)
     }
-
+    
     .data ALIGN(4K) : AT(ADDR(.data) - KERNEL_VO)
     {
         *(.data)
@@ -38,27 +38,15 @@ SECTIONS
         *(.bss)
         *(.bss.*)
     }
-
-    /*
+  
     .stack ALIGN(4K) : AT(ADDR(.stack) - KERNEL_VO)
     {
         *(.stack.*)
         . = ALIGN(16);
-        __stack_start = .;
-        . = . + 0x4000;
-        . = ALIGN(16);
-        __stack_end = .;
-    }
-    */
-
-    .stack ALIGN(4K) : AT(ADDR(.stack) - KERNEL_VO)
-    {
-        *(.stack.*)
-        . = ALIGN(16);
-        __stack_start = .;  /* nome mais claro */
+        __stack_bottom = .;
         . += 0x4000;
         . = ALIGN(16);
-        __stack_end = .;     /* stack cresce para baixo */
+        __stack_top = .;
     }
 
     .heap ALIGN(4K) : AT(ADDR(.heap) - KERNEL_VO)
@@ -86,9 +74,9 @@ SECTIONS
     _kernel_bss_start       = ADDR(.bss);
     _kernel_bss_end         = ADDR(.stack);
 
-    _kernel_stack_start     = __stack_start;
-    _kernel_stack_end       = __stack_end;
-
+    _kernel_stack_start     = __stack_bottom;
+    _kernel_stack_end       = __stack_top;
+  
     _kernel_heap_start      = __heap_start;
     _kernel_heap_end        = __heap_end;
 
