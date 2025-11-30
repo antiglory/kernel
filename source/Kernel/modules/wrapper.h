@@ -1,5 +1,5 @@
-#ifndef WRAPPERS_H
-#define WRAPPERS_H
+#ifndef WRAPPER_H
+#define WRAPPER_H
 
 TEXT  ALIGNED void halt(void)    __attribute__((noreturn));
 
@@ -12,7 +12,7 @@ TEXT  ALIGNED void halt(void)    __attribute__((noreturn));
         :                           \
     )                               \
 
-void halt(void)
+inline void halt(void)
 {
     while(1)
     {
@@ -29,9 +29,11 @@ inline void outb(uint16_t port, uint8_t value)
     asm volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
 }
 
-inline void in(uint16_t port, uint8_t value)
+inline uint8_t inb(uint16_t port)
 {
-    asm volatile ("in %0, %1" : : "a"(value), "Nd"(port));
+    uint8_t ret;
+    asm volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
 }
 
 #endif
