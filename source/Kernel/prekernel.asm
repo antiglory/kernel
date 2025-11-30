@@ -48,7 +48,7 @@ pstart:
 %include "source/Struct/gdt64.asm"
 
 setup_paging:
-    ; VA == PA; 0xffffff8000100000 -> 0x0000000000100000
+    ; VA == PA; 0xffffffff80100000 -> 0x0000000000100000
     ; PML4 entries
     mov edi, pml4_table
     mov eax, pdpt_table
@@ -66,7 +66,7 @@ setup_paging:
     or eax, PTE_PRESENT | PTE_WRITABLE
     mov [edi], eax      
 
-    mov edi, pdpt_table + (511 * 8)    ; entry 511 - high addresses
+    mov edi, pdpt_table + (510 * 8)    ; entry 511 - high addresses
     mov eax, pd_table
     or eax, PTE_PRESENT | PTE_WRITABLE
     mov [edi], eax
@@ -102,7 +102,7 @@ setup_paging:
     ret
 
 KERNEL_PHYSICAL_ENTRY equ 0x100000
-KERNEL_VIRTUAL_ENTRY  equ 0xFFFFFF8000100000
+KERNEL_VIRTUAL_ENTRY  equ 0xFFFFFFFF80100000
 
 KERNEL_BLOCK_START equ 8
 KERNEL_BLOCK_COUNT equ 16
@@ -125,12 +125,6 @@ end:
 
     cmp rdi, rsi
     jne .me_handler
-
-    ; passing PML4 pointers to kernel
-    mov rdi, pml4_table
-    mov rsi, pdpt_table
-    mov rdx, pd_table
-    mov rcx, pt_tables
     
     jmp KERNEL_VIRTUAL_ENTRY
 .me_handler:
@@ -223,15 +217,15 @@ pkprintnf:
 
     ; write char in video mem
     mov [rbx + rcx*2], al               ; char (each cell have 2 bytes for char and color)
-    mov BYTE [rbx + rcx*2 + 1], 0x07    ; white color, black back
+    mov BYTE [rbx + rcx*2 + 1], 0x0F    ; white color, black back
 
     inc rcx     ; next position in video mem
     jmp .l      ; loops to the next char
 .e:
     ret
 
-DISK_ERROR_MSG   db "[ PANIC ] disk read for kernel timeout!",   0x0
-MAP_ERROR_MSG    db "[ PANIC ] failed to setup kernel PML4!",    0x0
+DISK_ERROR_MSG   db "[ PANIC ] boot: disk read for kernel timeout!",   0x0
+MAP_ERROR_MSG    db "[ PANIC ] boot: failed to setup kernel PML4!",    0x0
 
 PAGE_SIZE             equ 4096
 ENTRIES_PER_TABLE     equ 512
@@ -242,4 +236,4 @@ align 4096
 pml4_table resb PAGE_SIZE
 pdpt_table resb PAGE_SIZE
 pd_table   resb PAGE_SIZE
-pt_tables  resb 512 * PAGE_SIZE
+pt_tables  resb 512 * PAGE_SIZE ; tbh i think this is too much
