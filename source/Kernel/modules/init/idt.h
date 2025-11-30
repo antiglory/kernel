@@ -4,6 +4,8 @@
 __attribute__((noreturn)) static void gp_isr(void)
 {
     kprintf("#GP got caught\n");
+    vga_pushc('g', 0x1F00);
+    vga_pushc('\n', 0);
 
     panic();
 }
@@ -11,6 +13,8 @@ __attribute__((noreturn)) static void gp_isr(void)
 __attribute__((noreturn)) static void pf_isr(void)
 {
     kprintf("#PF got caught\n");
+    vga_pushc('p', 0x1F00);
+    vga_pushc('\n', 0);
 
     panic();
 }
@@ -18,6 +22,8 @@ __attribute__((noreturn)) static void pf_isr(void)
 __attribute__((noreturn)) static void df_isr(void)
 {
     kprintf("#DF got caught\n");
+    vga_pushc('d', 0x1F00);
+    vga_pushc('\n', 0);
 
     panic();
 }
@@ -45,39 +51,9 @@ __attribute__((interrupt)) static void irq0_isr(struct irq_frame* instance)
     eoi_out();
 }
 
+// pressionar a tecla -> sinal elétrico pro controlador -> aciona PIC escravo -> aciona PIC mestre e trigga IRQ1 -> executa a ISR -> le o scancode na porta 0x60 -> transformar em caractere pela ascii -> interpreta e guarda o resultado no input buffer -> read() lê do buffer -> se tty.echo == true -> aparece na tela
 __attribute__((interrupt)) static void irq1_isr(struct irq_frame* instance)
 {
-    void write_back(const char c)
-    {
-        if (stdin_listen == false) return;
-        else
-        {
-            size_t len = 0;
-
-            while (len < STDIN_BUFF_SIZE && stdin_buffer[len] != '\0')
-            {
-                len++;
-            }
-
-            if (len + 1 < STDIN_BUFF_SIZE)
-            {
-                if (c == '\0')
-                {
-                    stdin_buffer[len] = '\n';
-
-                    kprintf("\n");
-                }
-                else
-                {
-                    stdin_buffer[len] = c;
-                    stdin_buffer[len + 1] = '\0';
-
-                    kprintf("%c", c);
-                }
-            }
-        }
-    }
-
     uint8_t al;
 
     asm volatile
@@ -87,34 +63,17 @@ __attribute__((interrupt)) static void irq1_isr(struct irq_frame* instance)
         :
     );
 
-    if (al & 0x80) // ignore key release
-    {
-        eoi_out();
-
-        return;
-    }
-    else if (al == 0x1C) // return (enter key)
-    {
-        write_back('\0');
-        goto _end;
-    }
-
-    static const char ascii[] =
-    {
-        0, 27, '1','2','3','4','5','6','7','8','9','0','-','=', '\b',
-        '\t','q','w','e','r','t','y','u','i','o','p','[',']','\n', 0,
-        'a','s','d','f','g','h','j','k','l',';','\'','`', 0, '\\',
-        'z','x','c','v','b','n','m',',','.','/', 0, '*', 0, ' '
-    };
-
-    if (al < sizeof(ascii))
-    {
-        char c = ascii[al];
-
-        if (c != 0 && c >= ' ' && c <= '~')
-            write_back(c);
-    }
+    keyboard_driver(al);
 _end:
+    eoi_out();
+}
+
+__attribute__((interrupt)) static void beep_isr(struct irq_frame* instance)
+{
+    beep(); // speaker routine
+
+    // se não for IRQ físico, não manda EOI
+    // se for IRQ mapeado do PIC, manda EOI:
     eoi_out();
 }
 
@@ -172,6 +131,9 @@ void init_idt(void)
     idt_set_gate(32, (uintptr_t)irq0_isr, GDT64_CODE_PTR, 0x8E);
     idt_set_gate(33, (uintptr_t)irq1_isr, GDT64_CODE_PTR, 0x8E);
 
+    // software interrupts
+    idt_set_gate(0xF0 /* 240 */, (uintptr_t)beep_isr, GDT64_CODE_PTR, 0x8E);
+
     asm volatile
     (
         "lidt %0\n\t"
@@ -179,7 +141,7 @@ void init_idt(void)
         : "m"(idtp)
     );
 
-    kprintf("[ BOOT ] loaded IDT\n");
+    // kprintf("[ BOOT ] loaded IDT\n");
 
     return;
 }
