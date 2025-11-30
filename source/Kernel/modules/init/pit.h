@@ -12,7 +12,7 @@ void init_pit(void)
     outb(0x40, divisor & 0xFF);     // low byte
     outb(0x40, divisor >> 8);       // high byte
 
-    kprintf("[ BOOT ] initialized PIT\n");
+    // kprintf("[ BOOT ] initialized PIT\n");
 }
 
 #endif
