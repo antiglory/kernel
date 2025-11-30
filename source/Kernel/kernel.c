@@ -1,51 +1,51 @@
-// 0xffffff8000000000 - 0xffffff8000200000 [pt_ffffff8000000]
+// 0xffffffff80000000 - 0xffffffff80200000 [pt_ffffff8000000]
 #include <stdint.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdbool.h>
 #include <stddef.h>
 
 #include "modules/macro.h"
 #include "modules/prototype.h"
 
+#define PAGE_SIZE 4096ULL
+
 // self
 volatile uint64_t cpu_ticks = 0;
 
+extern char _kernel_text_start[];
+extern char _kernel_text_end[];
+extern char _kernel_rodata_start[];
+extern char _kernel_rodata_end[];
+extern char _kernel_data_start[];
+extern char _kernel_data_end[];
+extern char _kernel_bss_start[];
+extern char _kernel_bss_end[];
+extern char _kernel_stack_start[];
+extern char _kernel_stack_end[];
+extern char _kernel_heap_start[];
+extern char _kernel_heap_end[];
+extern char _kernel_vma[];
+extern char _kernel_lma[];
+extern char _kernel_vo[];
+
 // kernel entrypoint
-void kstart(uint64_t* ext_pml4, uint64_t* ext_pdpt, uint64_t* ext_pd, uint64_t* ext_pt)
+void kstart(void)
 {
-    asm volatile
-    (
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-    );
+    asm volatile("nop; nop; nop; nop");
 
-    pml4_table = ext_pml4;
-    pdpt_table = ext_pdpt;
-    pd_table   = ext_pd;
-    pt_tables  = ext_pt;
-
-    asm volatile
-    (
-        // setup kernel stack
-        "movq %0, %%rax\n\t"
-        "movq %%rax, %%rsp\n\t"
-        "movq %%rsp, %%rbp\n\t"
-
+    asm volatile(
+        "mov %0, %%rax\n\t"
+        "and $-16, %%rax\n\t"
+        "sub $8, %%rax\n\t"
+        "mov %%rax, %%rsp\n\t"
+        "mov %%rsp, %%rbp\n\t"
         :
-        : "r"(__stack_end)
+        : "r"(_kernel_stack_end)
         : "rax", "memory"
     );
 
-    init_idt();
-    init_map_kernel_sections();
-
-    // RIP cant handle canonical address yet -> use trampolines (avoid RIP + offset)
-    asm volatile
-    (
+    asm volatile(
         "movabs %[target], %%rax\n\t"
         "jmpq *%%rax\n\t"
         :
@@ -57,6 +57,8 @@ void kstart(uint64_t* ext_pml4, uint64_t* ext_pdpt, uint64_t* ext_pd, uint64_t* 
 }
 
 #include "modules/wrapper.h"
+#include "modules/io.h"
+#include "modules/string.h"
 #include "modules/tty.h"
 
 __attribute__((noreturn)) void panic(void)
@@ -69,6 +71,7 @@ __attribute__((noreturn)) void panic(void)
 }
 
 #include "modules/init.h"
+// #include "modules/alloc.h"
 // #include "modules/loader.h"
 
 void sleep(uint64_t ms)
@@ -81,9 +84,24 @@ void sleep(uint64_t ms)
     }
 }
 
+// .text -> 0xffffffff80101000
 void main(void)
 {
-    kprintf("\nv0 is alive!\n");
+    asm volatile("int $0xF0"); // beep
 
-    halt();
+    kprintf("hello kernel!\n");
+  
+    while (1);
+
+    /*
+    char str[32];
+    while (1)
+    {
+	      kprintf("> ");
+	      gets(str);
+    
+        if (strcmp(str, "ping") == 0) kprintf("pong\n");
+        else if (strcmp(str, "halt") == 0) halt();
+    }
+    */
 }
