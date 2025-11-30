@@ -15,7 +15,7 @@ void init_pic(void)
     outb(0x21, 0x01); // ICW4
     outb(0xA1, 0x01);
 
-    kprintf("[ BOOT ] initialized PIC\n");
+    // kprintf("[ BOOT ] initialized PIC\n");
 }
 
 #endif
