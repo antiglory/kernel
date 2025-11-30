@@ -4,79 +4,211 @@
 #define VGA_WIDTH  80
 #define VGA_HEIGHT 25
 
-#define STDIN_BUFF_SIZE VGA_HEIGHT * VGA_WIDTH
+#define INPUT_BUFF_SIZE VGA_HEIGHT * VGA_WIDTH
+#define KEYBOARD_BUFF_SIZE 32
 
-unsigned char stdin_buffer[STDIN_BUFF_SIZE] = {0};
-bool          stdin_listen                  = false;
+unsigned char keyboard_buffer[KEYBOARD_BUFF_SIZE] = {0};
 
-void clear_stdin_buffer(void)
+struct tty
 {
-    memset(stdin_buffer, 0, STDIN_BUFF_SIZE);
+             uint32_t  id;                 // tty0, tty1...
+    volatile uint16_t* vga;
+
+    bool echo;                   // default -> always true 
+    bool canonical;              // COOKED mode (line) or RAW mode
+    bool enabled;
+
+    unsigned char input[INPUT_BUFF_SIZE]; // input buffer
+    size_t input_len;                     // current char at input buffer
+    // struct ringbuf input;              // chars received from keyboard
+    // struct ringbuf output;             // chars waiting for output
+
+    bool line_ready;
+
+    // pointers to console drivers
+    void (*vga_write)(const unsigned char c, const unsigned short ref);
+    void (*vga_erase)();
+    void (*flush_output)(void);
+
+    uint16_t cursor_x;
+    uint16_t cursor_y;
+    // uint8_t  color_fg;
+    // uint8_t  color_bg;
+
+    void (*ldisc_input)(const unsigned char c);    // line discipline for input
+    // void (*ldisc_process)(struct tty *t);       // if i implement pipeline
+
+    // struct task *reader_waiting;
+    // struct task *writer_waiting;
+
+    // spinlock_t lock; // critical
+
+    // void *driver_data;   
+};
+struct tty tty0;
+
+void clear_input_buffer(void)
+{
+    memset(tty0.input, 0, INPUT_BUFF_SIZE);
 }
 
-void gets(unsigned char* str)
+// console drivers
+void vga_scroll(int32_t lines)
 {
-    // new read
-    clear_stdin_buffer();
-    stdin_listen = true;
+    if (lines <= 0)
+        return;
 
-    while (true)
+    for (int i = 0; i < (VGA_HEIGHT - lines) * VGA_WIDTH; i++)
     {
-        volatile char* c = &stdin_buffer[0];
-        bool newline_found = false;
+        tty0.vga[i] = tty0.vga[i + lines * VGA_WIDTH];
+    }
 
-        while (*c != '\0')
+    for (int i = (VGA_HEIGHT - lines) * VGA_WIDTH; i < VGA_HEIGHT * VGA_WIDTH; i++)
+    {
+        tty0.vga[i] = (short)0x0720;
+    }
+}
+
+void vga_pushc(const unsigned char c, unsigned short ref)
+{
+    if (ref == 0)
+        ref = 0x0F00;
+
+    int32_t position = tty0.cursor_y * VGA_WIDTH + tty0.cursor_x;
+    
+    if (tty0.cursor_y >= VGA_HEIGHT)
+        tty0.cursor_y = VGA_HEIGHT - 1;
+
+    if (tty0.cursor_x >= VGA_WIDTH)
+        tty0.cursor_x = VGA_WIDTH - 1;
+  
+    if (c == '\n')
+    {
+        tty0.cursor_x = 0;
+        tty0.cursor_y++;
+        goto _end;
+    }
+
+    tty0.vga[position] = (c & 0x00FF) | (ref & 0xFF00);
+    tty0.cursor_x++;
+  
+    if (tty0.cursor_x >= VGA_WIDTH)
+    {
+        tty0.cursor_x = 0;
+        tty0.cursor_y++;
+    }
+
+_end:
+    return;
+}
+
+void vga_popc(void)
+{
+    tty0.cursor_x--;
+    int32_t position = tty0.cursor_y * VGA_WIDTH + tty0.cursor_x;
+    
+    tty0.vga[position] = (' ' | 0x0F00);
+}
+
+void vga_clear(void)
+{
+    for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH; i++)
+    {
+        tty0.vga[i] = (short)0x0720;
+    }
+
+    tty0.cursor_x = 0;
+    tty0.cursor_y = 0;
+}
+
+// keyboard
+void ldisc_input(const unsigned char c)
+{
+    size_t len = 0;
+
+    while (len < INPUT_BUFF_SIZE && tty0.input[len] != '\0')
+    {
+        len++;
+    }
+
+    if (len + 1 < INPUT_BUFF_SIZE)
+    {
+        if (c == '\n')
         {
-            if (*c == '\n')
+            tty0.input[len] = '\n';
+            tty0.line_ready = true;
+           
+            memset(tty0.input, 0, INPUT_BUFF_SIZE);
+            
+            if (tty0.echo == true)
+                vga_pushc(c, 0);
+        }
+        else if (c == 0x08) // backspace
+        {
+            if (len > 0 && len - 1 >= 0)
             {
-                newline_found = true;
-                break;
+                tty0.input[len - 1] = 0x0;
+                tty0.input[len] = '\0';
+               
+                if (tty0.echo == true)
+                    vga_popc();
             }
-            c++;
         }
-
-        if (newline_found)
+        else
         {
-            break;
+            tty0.input[len] = c;
+            tty0.input[len + 1] = '\0';
+
+            if (tty0.echo == true)
+                vga_pushc(c, 0);
         }
-
-        asm volatile("hlt\n\t");
     }
-
-    stdin_listen = false;
-
-    size_t i = 0;
-
-    while (stdin_buffer[i] != '\n')
-    {
-        str[i] = stdin_buffer[i];
-        i++;
-    }
-
-    str[i] = '\0';
 }
 
-static int32_t current_x = 0;
-static int32_t current_y = 0;
+void keyboard_driver(const uint8_t al)
+{  
+    if (al & 0x80) // ignore key release
+        return;
+    else if (al == 0x1C) // return (enter key)
+    {
+        ldisc_input('\n');
+        goto _end;
+    }
+  
+    static const char ascii[] =
+    {
+        0, 27, '1','2','3','4','5','6','7','8','9','0','-','=', '\b',
+        '\t','q','w','e','r','t','y','u','i','o','p','[',']','\n', 0,
+        'a','s','d','f','g','h','j','k','l',';','\'','`', 0, '\\',
+        'z','x','c','v','b','n','m',',','.','/', 0, '*', 0, ' '
+    };
 
-static unsigned short* vga = (unsigned short*)0xFFFFFF80000B8000;
+    if (al < sizeof(ascii))
+    {
+        char c = ascii[al];
 
-void clear(void)
+        if (c != 0 && c >= ' ' && c <= '~' || c == '\b' /* 0x08 */)
+            ldisc_input(c);
+    }
+
+_end:
+    return;
+}
+
+static void print_string(const char* s)
 {
-    for (int i = 0; i < VGA_HEIGHT * VGA_HEIGHT; i++)
+    for (int j = 0; s[j] != '\0'; j++)
     {
-        vga[i] = (short)0x0720;
+        vga_pushc(s[j], 0);
     }
-
-    current_x = 0;
-    current_y = 0;
 }
+
+// old ----
 
 // kernel print formatted (almost)
+// i will change vga drivers usage to FDs functions like write()
 void kprintf(const unsigned char* str, ...)
 {
-    static const unsigned short  ref  = 7936; // 0x1F00
-
     va_list args;
     va_start(args, str);
 
@@ -84,32 +216,13 @@ void kprintf(const unsigned char* str, ...)
     {
         if (str[i] == '\n')
         {
-            current_x = 0;
-            current_y++;
+            vga_pushc('\n', 0);
         }
         else if (str[i] == '%')
         {
             i++;
 
             unsigned char format = str[i];
-
-            void print_string(const char* s)
-            {
-                for (int j = 0; s[j] != '\0'; j++)
-                {
-                    int32_t position = current_y * VGA_WIDTH + current_x;
-
-                    vga[position] = (ref | s[j]);
-
-                    current_x++;
-
-                    if (current_x >= VGA_WIDTH)
-                    {
-                        current_x = 0;
-                        current_y++;
-                    }
-                }
-            }
             
             if (format == 'p') // pointer
             {
@@ -155,51 +268,17 @@ void kprintf(const unsigned char* str, ...)
             else if (format == 'c') // char
             {
                 unsigned char c = (unsigned char)va_arg(args, int);
-                unsigned char tmp_str[2];
-
-                tmp_str[0] = c;
-                tmp_str[1] = '\0';
-
-                print_string((const char*)tmp_str);
+                vga_pushc(c, 0);
             }
             else if (format == 's') // string
             {
                 const char* s = va_arg(args, const char*);
-
                 print_string(s);
             }
         }
         else
         {
-            int32_t position = current_y * VGA_WIDTH + current_x;
-
-            vga[position] = (ref | str[i]);
-
-            current_x++;
-        }
-
-        if (current_x >= VGA_WIDTH)
-        {
-            current_x = 0;
-            current_y++;
-        }
-
-        if (current_y >= VGA_HEIGHT)
-        {
-            for (int y = 0; y < VGA_HEIGHT - 1; y++)
-            {
-                for (int x = 0; x < VGA_WIDTH; x++)
-                {
-                    vga[y * VGA_WIDTH + x] = vga[(y + 1) * VGA_WIDTH + x];
-                }
-            }
-
-            for (int x = 0; x < VGA_WIDTH; x++)
-            {
-                vga[(VGA_HEIGHT - 1) * VGA_WIDTH + x] = ref | ' ';
-            }
-
-            current_y = VGA_HEIGHT - 1;
+            vga_pushc(str[i], 0);
         }
     }
     
