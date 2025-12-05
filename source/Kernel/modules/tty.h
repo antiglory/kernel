@@ -7,11 +7,9 @@
 #define INPUT_BUFF_SIZE VGA_HEIGHT * VGA_WIDTH
 #define KEYBOARD_BUFF_SIZE 32
 
-unsigned char keyboard_buffer[KEYBOARD_BUFF_SIZE] = {0};
-
 struct tty
 {
-             uint32_t  id;                 // tty0, tty1...
+    uint32_t  id;                // tty0, tty1...
     volatile uint16_t* vga;
 
     bool echo;                   // default -> always true 
@@ -41,9 +39,9 @@ struct tty
     // struct task *reader_waiting;
     // struct task *writer_waiting;
 
-    // spinlock_t lock; // critical
+    // spinlock_t lock;
 
-    // void *driver_data;   
+    // void *driver_data; // opcional           
 };
 struct tty tty0;
 
@@ -74,32 +72,40 @@ void vga_pushc(const unsigned char c, unsigned short ref)
     if (ref == 0)
         ref = 0x0F00;
 
-    int32_t position = tty0.cursor_y * VGA_WIDTH + tty0.cursor_x;
-    
-    if (tty0.cursor_y >= VGA_HEIGHT)
-        tty0.cursor_y = VGA_HEIGHT - 1;
-
-    if (tty0.cursor_x >= VGA_WIDTH)
-        tty0.cursor_x = VGA_WIDTH - 1;
-  
+    // se newline => só avança linha
     if (c == '\n')
     {
         tty0.cursor_x = 0;
         tty0.cursor_y++;
-        goto _end;
+
+        // trigger scroll
+        if (tty0.cursor_y >= VGA_HEIGHT)
+        {
+            vga_scroll(1);
+            tty0.cursor_y = VGA_HEIGHT - 1;
+        }
+
+        return;
     }
 
-    tty0.vga[position] = (c & 0x00FF) | (ref & 0xFF00);
+    int32_t pos = tty0.cursor_y * VGA_WIDTH + tty0.cursor_x;
+
+    tty0.vga[pos] = (c & 0x00FF) | (ref & 0xFF00);
     tty0.cursor_x++;
-  
+
+    // wrap horizontal
     if (tty0.cursor_x >= VGA_WIDTH)
     {
         tty0.cursor_x = 0;
         tty0.cursor_y++;
     }
 
-_end:
-    return;
+    // trigger scroll se passou o fundo
+    if (tty0.cursor_y >= VGA_HEIGHT)
+    {
+        vga_scroll(1);
+        tty0.cursor_y = VGA_HEIGHT - 1;
+    }
 }
 
 void vga_popc(void)
@@ -113,88 +119,112 @@ void vga_popc(void)
 void vga_clear(void)
 {
     for (int i = 0; i < VGA_HEIGHT * VGA_WIDTH; i++)
-    {
         tty0.vga[i] = (short)0x0720;
-    }
 
     tty0.cursor_x = 0;
     tty0.cursor_y = 0;
 }
 
-// keyboard
-void ldisc_input(const unsigned char c)
+// keyboard 
+struct keyboard_queue_t 
 {
-    size_t len = 0;
+    uint8_t buffer[256];  // buffer circular
+    int head;             // índice de escrita (ISR)
+    int tail;             // índice de leitura (thread)
+    volatile int count;            // número de itens no buffer
+};
+static struct keyboard_queue_t kb_queue;
+static waitq_t kb_thread;
 
-    while (len < INPUT_BUFF_SIZE && tty0.input[len] != '\0')
-    {
-        len++;
-    }
-
-    if (len + 1 < INPUT_BUFF_SIZE)
-    {
-        if (c == '\n')
-        {
-            tty0.input[len] = '\n';
-            tty0.line_ready = true;
-           
-            memset(tty0.input, 0, INPUT_BUFF_SIZE);
-            
-            if (tty0.echo == true)
-                vga_pushc(c, 0);
-        }
-        else if (c == 0x08) // backspace
-        {
-            if (len > 0 && len - 1 >= 0)
-            {
-                tty0.input[len - 1] = 0x0;
-                tty0.input[len] = '\0';
-               
-                if (tty0.echo == true)
-                    vga_popc();
-            }
-        }
-        else
-        {
-            tty0.input[len] = c;
-            tty0.input[len + 1] = '\0';
-
-            if (tty0.echo == true)
-                vga_pushc(c, 0);
-        }
-    }
-}
-
-void keyboard_driver(const uint8_t al)
-{  
-    if (al & 0x80) // ignore key release
+static void ldisc_input(uint8_t al)
+{
+    if (al & 0x80)   // key release
         return;
-    else if (al == 0x1C) // return (enter key)
-    {
-        ldisc_input('\n');
-        goto _end;
-    }
-  
-    static const char ascii[] =
-    {
-        0, 27, '1','2','3','4','5','6','7','8','9','0','-','=', '\b',
+
+    static const char ascii[] = {
+        0, 27,'1','2','3','4','5','6','7','8','9','0','-','=', '\b',
         '\t','q','w','e','r','t','y','u','i','o','p','[',']','\n', 0,
         'a','s','d','f','g','h','j','k','l',';','\'','`', 0, '\\',
         'z','x','c','v','b','n','m',',','.','/', 0, '*', 0, ' '
     };
 
-    if (al < sizeof(ascii))
-    {
-        char c = ascii[al];
+    char c = 0;
 
-        if (c != 0 && c >= ' ' && c <= '~' || c == '\b' /* 0x08 */)
-            ldisc_input(c);
+    if (al < sizeof(ascii))
+        c = ascii[al];
+    else
+        return;
+
+    if (!( (c >= ' ' && c <= '~') || c == '\b' || c == '\n' ))
+        return;
+
+    size_t len = 0;
+    while (len < INPUT_BUFF_SIZE && tty0.input[len] != 0)
+        len++;
+
+    if (len + 1 >= INPUT_BUFF_SIZE)
+        return;
+
+    if (c == '\n')
+    {
+        tty0.input[len] = '\n';
+        tty0.input[len + 1] = 0;
+        tty0.line_ready = true;
+
+        if (tty0.echo)
+            vga_pushc('\n', 0);
+
+        return;
     }
 
-_end:
-    return;
+    if (c == '\b')
+    {
+        if (len > 0) {
+            tty0.input[len - 1] = 0;
+            if (tty0.echo)
+                vga_popc();
+        }
+        return;
+    }
+
+    tty0.input[len] = c;
+    tty0.input[len + 1] = 0;
+
+    if (tty0.echo)
+        vga_pushc(c, 0);
 }
 
+void kb_driver(void* arg)
+{
+    (void)arg;
+    for (;;)
+    {
+        cli(); // prevents race condition to kb buffer
+
+        if (kb_queue.count > 0)
+        {
+            uint8_t scancode = kb_queue.buffer[kb_queue.tail];
+            kb_queue.tail = (kb_queue.tail + 1) % 256;
+            kb_queue.count--;
+        
+            sti();
+
+            ldisc_input(scancode);
+           
+            // dump_runqueue();
+            kthread_yield();
+        } 
+        else
+        {
+            sti();
+            
+            // dump_runqueue();
+            kthread_yield();
+        }
+    }
+}
+
+// old ----
 static void print_string(const char* s)
 {
     for (int j = 0; s[j] != '\0'; j++)
@@ -202,8 +232,6 @@ static void print_string(const char* s)
         vga_pushc(s[j], 0);
     }
 }
-
-// old ----
 
 // kernel print formatted (almost)
 // i will change vga drivers usage to FDs functions like write()
@@ -274,6 +302,41 @@ void kprintf(const unsigned char* str, ...)
             {
                 const char* s = va_arg(args, const char*);
                 print_string(s);
+            }
+            else if (format == 'd') // signed decimal
+            {
+                int val = va_arg(args, int);
+
+                char buf[16];
+                int idx = 0;
+
+                if (val == 0)
+                    buf[idx++] = '0';
+                else
+                {
+                    if (val < 0)
+                    {
+                        vga_pushc('-', 0);
+                        val = -val;
+                    }
+
+                    // gera decimal ao contrário
+                    char tmp[16];
+                    int t = 0;
+
+                    while (val > 0)
+                    {
+                        tmp[t++] = '0' + (val % 10);
+                        val /= 10;
+                    }
+
+                    // inverte p/ ordem correta
+                    while (t--)
+                        buf[idx++] = tmp[t];
+                }
+
+                buf[idx] = '\0';
+                print_string(buf);
             }
         }
         else
