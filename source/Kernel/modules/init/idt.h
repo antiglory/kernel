@@ -4,8 +4,6 @@
 __attribute__((noreturn)) static void gp_isr(void)
 {
     kprintf("#GP got caught\n");
-    vga_pushc('g', 0x1F00);
-    vga_pushc('\n', 0);
 
     panic();
 }
@@ -13,8 +11,6 @@ __attribute__((noreturn)) static void gp_isr(void)
 __attribute__((noreturn)) static void pf_isr(void)
 {
     kprintf("#PF got caught\n");
-    vga_pushc('p', 0x1F00);
-    vga_pushc('\n', 0);
 
     panic();
 }
@@ -22,8 +18,6 @@ __attribute__((noreturn)) static void pf_isr(void)
 __attribute__((noreturn)) static void df_isr(void)
 {
     kprintf("#DF got caught\n");
-    vga_pushc('d', 0x1F00);
-    vga_pushc('\n', 0);
 
     panic();
 }
@@ -56,15 +50,16 @@ __attribute__((interrupt)) static void irq1_isr(struct irq_frame* instance)
 {
     uint8_t al;
 
-    asm volatile
-    (
-        "inb $0x60, %0\n\t"
-        : "=a"(al)
-        :
-    );
+    asm volatile("inb $0x60, %0" : "=a"(al));
 
-    keyboard_driver(al);
-_end:
+    if (kb_queue.count < 256)
+    {
+        kb_queue.buffer[kb_queue.head] = al;
+        kb_queue.head = (kb_queue.head + 1) % 256;
+        kb_queue.count++;
+        thread_wake_one(&kb_thread);
+    }
+
     eoi_out();
 }
 
@@ -115,17 +110,15 @@ void init_idt(void)
 
     // clean
     for (int32_t i = 0; i < 256; i++)
-    {
         idt_set_gate(i, 0x0, 0x0, 0x0);
-    }
 
     // 0x08 = GDT64 code selector
     // 0x8E - present | ring 0 | interrupt gate
 
     // faults
-    idt_set_gate(8,  (uintptr_t)df_isr,   GDT64_CODE_PTR, 0x8E);
-    idt_set_gate(13, (uintptr_t)gp_isr,   GDT64_CODE_PTR, 0x8E);
-    idt_set_gate(14, (uintptr_t)pf_isr,   GDT64_CODE_PTR, 0x8E);
+    idt_set_gate(8,  (uintptr_t)df_isr, GDT64_CODE_PTR, 0x8E);
+    idt_set_gate(13, (uintptr_t)gp_isr, GDT64_CODE_PTR, 0x8E);
+    idt_set_gate(14, (uintptr_t)pf_isr, GDT64_CODE_PTR, 0x8E);
 
     // IRQs
     idt_set_gate(32, (uintptr_t)irq0_isr, GDT64_CODE_PTR, 0x8E);
@@ -140,8 +133,6 @@ void init_idt(void)
         :
         : "m"(idtp)
     );
-
-    // kprintf("[ BOOT ] loaded IDT\n");
 
     return;
 }
