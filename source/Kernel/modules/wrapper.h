@@ -1,7 +1,7 @@
 #ifndef WRAPPER_H
 #define WRAPPER_H
 
-TEXT  ALIGNED void halt(void)    __attribute__((noreturn));
+TEXT  ALIGNED void halt(void) __attribute__((noreturn));
 
 #define jmp(addr)                   \
     asm volatile                    \
@@ -12,16 +12,18 @@ TEXT  ALIGNED void halt(void)    __attribute__((noreturn));
         :                           \
     )                               \
 
+inline void cli(void) { asm volatile("cli" ::: "memory"); }
+inline void sti(void) { asm volatile("sti" ::: "memory"); }
+
 inline void halt(void)
 {
-    while(1)
-    {
-        asm volatile
-        (
-            "cli\n\t"
-            "hlt\n\t"
-        );
-    }
+    asm volatile
+    (
+        "cli\n\t"
+        "hlt\n\t"
+    );
+
+    __builtin_unreachable();
 }
 
 inline void outb(uint16_t port, uint8_t value)
