@@ -1,6 +1,7 @@
 #ifndef INIT_H
 #define INIT_H
 
+// #include "init/map.h"
 #include "init/idt.h"
 #include "init/pic.h"
 #include "init/pit.h"
@@ -15,6 +16,15 @@ static inline uint8_t test_access(const void* addr)
         : "memory"
     );
     return val;
+}
+
+void init_stub()
+{
+    sti();
+
+    kprintf("kthread: main OK\n");
+  
+    main();
 }
 
 void init(void)
@@ -41,6 +51,8 @@ void init(void)
     vga_clear();
 
     kprintf("tty0 OK\n");
+
+    kprintf("pic OK\npit OK\nidt OK\n");
 
     kprintf("memory test...\n");
 
@@ -83,8 +95,34 @@ void init(void)
         kprintf("  stack bottom %p NOT OK\n", rbp);
         panic();
     }
-    
-    main();
+
+    kbrk_init();
+    slab_init();
+    kprintf("kmalloc: kbrk OK\nkmalloc: slab OK\n");
+
+    kthread_subsystem_init();
+    kprintf("kthread: subsystem OK\n");
+
+    if (kthread_create(kb_driver, NULL, "kb_driver") == -1)
+    {
+        kprintf("kthread: kb_driver NOT OK\n");
+        panic();
+    }
+
+    kprintf("kthread: kb_driver OK\n");
+
+    if (kthread_create(init_stub, NULL, "main") == -1)
+    {
+        kprintf("kthread: main NOT OK\n");
+        panic();
+    }
+
+    waitq_init(&kb_thread);
+    kb_queue.head = 0;
+    kb_queue.tail = 0;
+    kb_queue.count = 0;
+
+    kthread_start_scheduler(); // idle() -> kb_driver() -> init_b() -> main()
 }
 
 #endif
