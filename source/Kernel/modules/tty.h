@@ -9,7 +9,7 @@
 
 struct tty
 {
-    uint32_t  id;                // tty0, tty1...
+    uint32_t id;                // tty0, tty1...
     volatile uint16_t* vga;
 
     bool echo;                   // default -> always true 
@@ -18,6 +18,7 @@ struct tty
 
     unsigned char input[INPUT_BUFF_SIZE]; // input buffer
     size_t input_len;                     // current char at input buffer
+    waitq_t read_wq;
     // struct ringbuf input;              // chars received from keyboard
     // struct ringbuf output;             // chars waiting for output
 
@@ -26,7 +27,7 @@ struct tty
     // pointers to console drivers
     void (*vga_write)(const unsigned char c, const unsigned short ref);
     void (*vga_erase)();
-    void (*flush_output)(void);
+    void (*vga_flush)(void);
 
     uint16_t cursor_x;
     uint16_t cursor_y;
@@ -41,7 +42,7 @@ struct tty
 
     // spinlock_t lock;
 
-    // void *driver_data; // opcional           
+    // void *driver_data; // opcional
 };
 struct tty tty0;
 
@@ -131,17 +132,18 @@ struct keyboard_queue_t
     uint8_t buffer[256];  // buffer circular
     int head;             // índice de escrita (ISR)
     int tail;             // índice de leitura (thread)
-    volatile int count;            // número de itens no buffer
+    volatile int count;
 };
-static struct keyboard_queue_t kb_queue;
-static waitq_t kb_thread;
+struct keyboard_queue_t kb_queue;
+waitq_t kb_thread;
 
 static void ldisc_input(uint8_t al)
 {
-    if (al & 0x80)   // key release
+    if (al & 0x80)   // ignora key release
         return;
 
-    static const char ascii[] = {
+    static const char ascii[] =
+    {
         0, 27,'1','2','3','4','5','6','7','8','9','0','-','=', '\b',
         '\t','q','w','e','r','t','y','u','i','o','p','[',']','\n', 0,
         'a','s','d','f','g','h','j','k','l',';','\'','`', 0, '\\',
@@ -155,7 +157,7 @@ static void ldisc_input(uint8_t al)
     else
         return;
 
-    if (!( (c >= ' ' && c <= '~') || c == '\b' || c == '\n' ))
+    if (!((c >= ' ' && c <= '~') || c == '\b' || c == '\n'))
         return;
 
     size_t len = 0;
@@ -170,6 +172,7 @@ static void ldisc_input(uint8_t al)
         tty0.input[len] = '\n';
         tty0.input[len + 1] = 0;
         tty0.line_ready = true;
+        thread_wake_one(&tty0.read_wq);
 
         if (tty0.echo)
             vga_pushc('\n', 0);
@@ -179,8 +182,10 @@ static void ldisc_input(uint8_t al)
 
     if (c == '\b')
     {
-        if (len > 0) {
+        if (len > 0)
+        {
             tty0.input[len - 1] = 0;
+            
             if (tty0.echo)
                 vga_popc();
         }
@@ -206,20 +211,19 @@ void kb_driver(void* arg)
             uint8_t scancode = kb_queue.buffer[kb_queue.tail];
             kb_queue.tail = (kb_queue.tail + 1) % 256;
             kb_queue.count--;
-        
+            ldisc_input(scancode);
+      
             sti();
 
-            ldisc_input(scancode);
-           
             // dump_runqueue();
-            kthread_yield();
+            thread_sleep(&kb_thread);
         } 
         else
         {
             sti();
             
             // dump_runqueue();
-            kthread_yield();
+            thread_sleep(&kb_thread);
         }
     }
 }
@@ -228,9 +232,7 @@ void kb_driver(void* arg)
 static void print_string(const char* s)
 {
     for (int j = 0; s[j] != '\0'; j++)
-    {
         vga_pushc(s[j], 0);
-    }
 }
 
 // kernel print formatted (almost)
@@ -243,9 +245,7 @@ void kprintf(const unsigned char* str, ...)
     for (int32_t i = 0; str[i] != '\0'; i++)
     {
         if (str[i] == '\n')
-        {
             vga_pushc('\n', 0);
-        }
         else if (str[i] == '%')
         {
             i++;
@@ -340,12 +340,8 @@ void kprintf(const unsigned char* str, ...)
             }
         }
         else
-        {
             vga_pushc(str[i], 0);
-        }
     }
     
     va_end(args);
 }
-
-#endif
