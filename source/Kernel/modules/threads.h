@@ -218,66 +218,53 @@ static void remove_from_runqueue(kthread_t* t)
     }
 }
 
-// scheduler: cooperative round-robin
+// round-robin scheduler
 void schedule(void)
 {
     cli();
 
-    if (!current)
-    {
-        if (!runqueue_head)
-        {
-            sti();
-            return;
-        }
-        
-        kthread_t* n = runqueue_head->next;
-        current = n;
-        n->state = THREAD_RUNNING;
-        
-        sti();
-        return;
-    }
-
+    kthread_t *prev = current;
+    
     if (!runqueue_head)
     {
         sti();
-        return;
+        return; 
+    }
+
+    kthread_t *next = NULL;
+
+    // thread bloqueou ou morreu
+    if (prev->state == THREAD_BLOCKED || prev->state == THREAD_ZOMBIE)
+    {
+        next = runqueue_head;
     }
     
-    kthread_t *prev = current;
-    kthread_t *cand = prev->next;
-    
-    if (!cand || cand == prev)
+    else // thread atual só cedeu a CPU pra próxima thread 
+    {
+        next = prev->next;
+
+        runqueue_head = next;
+    }
+
+    if (next == prev && prev->state == THREAD_RUNNING)
     {
         sti();
         return;
     }
 
-    runqueue_head = prev;
-
-    kthread_t *next = cand;
-
-    prev->state = THREAD_RUNNABLE;
-    next->state = THREAD_RUNNING;
     current = next;
 
-    uint64_t** old_sp_storage = &prev->sp;
-    
-    // kprintf("  new sp = %p\n  sp[fn] = %p\n  sp[arg] = %p\n  sp[entry] = %p\n", next->sp, next->sp[8], next->sp[7], next->sp[6]);
-  
-    // for (int i = 8; i >= 0; i--)
-    //     kprintf("sp[%d] = %p\n", i, next->sp[i]);
+    if (prev->state == THREAD_RUNNING)
+        prev->state = THREAD_RUNNABLE;
+        
+    next->state = THREAD_RUNNING;
 
-    // kprintf("stack base=%p stack_end=%p sp=%p\n", next->stack, next->stack + KTHREAD_STACK_SIZE, (void*)next->sp);
-    // if ((uint8_t*)next->sp < next->stack || (uint8_t*)next->sp >= next->stack + KTHREAD_STACK_SIZE)
-    //     kprintf("SP OUTSIDE stack!\n");
-
-    context_switch(old_sp_storage, next->sp);
-   
-    // when the thread is switched back in, execution continues here
+    // dump_runqueue();
 
     sti();
+    context_switch(&prev->sp, next->sp);
+
+    // thread returns to here ?
 }
 
 // gives the CPU to the next thread runnable in queue
@@ -301,7 +288,8 @@ int kthread_create(void (*fn)(void*), void* arg, const char* name)
               strncpy(t->name, name, sizeof(t->name)-1);
 
             t->stack = kmalloc(KTHREAD_STACK_SIZE);
-            if (!t->stack) return -1;
+            if (!t->stack)
+                return -1;
 
             t->fn  = fn;
             t->arg = arg;
@@ -365,13 +353,36 @@ void thread_sleep(waitq_t* wq)
     cli();
 
     current->state = THREAD_BLOCKED;
+
+    remove_from_runqueue(current);
+
     current->next = wq->head;
     wq->head = current;
-    remove_from_runqueue(current);
+
+    // dump_runqueue();
+
     schedule();
     
     sti();
 }
+
+/*
+void thread_sleep(waitq_t* wq)
+{
+    cli();
+
+    current->state = THREAD_BLOCKED;
+    current->next = wq->head;
+    wq->head = current;
+    remove_from_runqueue(current);
+
+    dump_runqueue();
+    halt();
+    schedule();
+    
+    sti();
+}
+*/
 
 void thread_wake_one(waitq_t* wq)
 {
@@ -499,7 +510,7 @@ void dump_runqueue(void)
     do
     {
         kprintf(
-            "  #%d  t=%p  id=%d  state=%s  sp=%p  stack=%p..%p  name=\"%s\" next=%p\n",
+            "  #%d  t=%p  id=%d  state=%s  sp=%p  stack=%p..%p  name=\"%s\" next=\"%s\" (%p)\n",
             i,
             it,
             it->id,
@@ -508,6 +519,7 @@ void dump_runqueue(void)
             it->stack,
             it->stack ? it->stack + KTHREAD_STACK_SIZE : NULL,
             it->name,
+            it->next->name,
             it->next
         );
         it = it->next;
