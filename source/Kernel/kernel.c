@@ -1,11 +1,12 @@
-// 0xffffffff80000000 - 0xffffffff80200000
 /* subsystems:
  *    - threading (round-robin scheduler)
  *    - tty (console)
+ *    - ramfs (WIP)
  *    - interrupts, IRQ
  *    - timer
  */
 
+// 0xffffffff80000000 - 0xffffffff80200000
 #include <stdint.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -74,10 +75,8 @@ void kprintf(const unsigned char* str, ...);
 
 __attribute__((noreturn)) void panic(void)
 {
-    asm volatile("cli\n\t");
-
+    cli();
     kprintf("kernel panic!\n");
-
     halt();
 }
 
@@ -103,7 +102,7 @@ void main(void)
     asm volatile("int $0xF0"); // beep
     kprintf("\nv0 is alive!\n");
 
-    dump_runqueue();
+    // dump_runqueue();
 
     /*
     for (;;)
@@ -116,10 +115,11 @@ void main(void)
     char str[32];
     while (1)
     {
-        kprintf("> ");
+	    kprintf("> ");
         read(0, str, sizeof(str));
 
-        if (strcmp(str, "ping") == 0) kprintf("pong\n");
+        if (strcmp(str, "ping") == 0)
+            kprintf("pong\n");
         else if (strcmp(str, "halt") == 0) halt();
 
         // kthread_yield();
