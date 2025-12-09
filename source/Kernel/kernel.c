@@ -115,12 +115,13 @@ void main(void)
     char str[32];
     while (1)
     {
-	    kprintf("> ");
+	      kprintf("> ");
         read(0, str, sizeof(str));
 
         if (strcmp(str, "ping") == 0)
             kprintf("pong\n");
-        else if (strcmp(str, "halt") == 0) halt();
+        else if (strcmp(str, "halt") == 0)
+            halt();
 
         // kthread_yield();
     }
