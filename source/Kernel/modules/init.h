@@ -42,17 +42,17 @@ void init(void)
     tty0.enabled = true;
     tty0.input_len = 0;
     tty0.line_ready = false;
-    tty0.vga_write    = &vga_pushc;
-    tty0.vga_erase    = &vga_popc;
-    tty0.flush_output = &vga_clear;
-    tty0.ldisc_input  = &ldisc_input;
+    tty0.vga_write = &vga_pushc;
+    tty0.vga_erase = &vga_popc;
+    tty0.vga_flush = &vga_clear;
+    tty0.ldisc_input = &ldisc_input;
     tty0.cursor_x = 0;
     tty0.cursor_y = 0;
-    vga_clear();
+    tty0.vga_flush();
+  
+    kprintf("system: tty0 OK\n");
 
-    kprintf("tty0 OK\n");
-
-    kprintf("pic OK\npit OK\nidt OK\n");
+    kprintf("system: idt OK\nsystem: pic OK\nsystem: pit OK\n");
 
     kprintf("memory test...\n");
 
@@ -122,7 +122,10 @@ void init(void)
     kb_queue.tail = 0;
     kb_queue.count = 0;
 
-    kthread_start_scheduler(); // idle() -> kb_driver() -> init_b() -> main()
-}
+    init_fs();
+    
+    kprintf("ramfs: fs OK\n");
 
+    kthread_start_scheduler(); // idle() -> ... -> init_stub() -> main()
+}
 #endif
