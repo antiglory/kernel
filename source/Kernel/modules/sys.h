@@ -3,26 +3,9 @@
 
 #define MAX_FDS 512
 
-struct file;
-
-struct fops_t
-{
-    ssize_t (*read)(struct file* f, void* buf, size_t size);
-    ssize_t (*write)(struct file* f, const void* buf, size_t size);
-};
-
-struct file
-{
-    int fd;
-    int flags;
-    off_t offset;
-    int ref_count;
-    void* private_data;
-    struct fops_t* fops;
-};
 static struct file* fd_table[MAX_FDS];
 
-ssize_t tty_read(struct file* f, void* buf, size_t size)
+static ssize_t tty_read(struct file* f, void* buf, size_t size)
 {
     struct tty* t = f->private_data;
 
@@ -44,7 +27,7 @@ ssize_t tty_read(struct file* f, void* buf, size_t size)
     return n;
 }
 
-ssize_t tty_write(struct file* f, const void* buf, size_t size)
+static ssize_t tty_write(struct file* f, const void* buf, size_t size)
 {
     const uint8_t* p = buf;
 
@@ -60,6 +43,7 @@ void init_fs(void)
 {
     memset(fd_table, 0, sizeof(fd_table));
 
+    // stdin, stdout -> (points to) tty (console)
     struct file* stdin_file = kmalloc(sizeof(struct file));
     struct fops_t* stdin_fops = kmalloc(sizeof(struct fops_t));
 
