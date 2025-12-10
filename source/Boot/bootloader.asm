@@ -1,6 +1,6 @@
 [BITS 16]
 [ORG 0x7C00]
-; a disk block -> 512 bytes
+; 1 disk block = 512 bytes
 
 PREKERNEL_ENTRY equ 0x1000
 
@@ -18,6 +18,13 @@ _start:
     ; stack (but i'll not use in this label)
     mov bp, 0x7C00
     mov sp, bp
+
+    mov si, boot_msg
+    call bprintnf
+
+    call check_ata
+    cmp byte [ATA_PRESENT], 1
+    jne .no_ata_found
 
     ; loading prekernel into block 2
     mov bx, PREKERNEL_ENTRY
@@ -49,6 +56,73 @@ _start:
 
     ; far jump to protected mode
     jmp GDT32.code_ptr:protected_mode
+.no_ata_found:
+    mov si, no_ata_found_msg
+    call bprintnf
+
+    hlt
+
+check_ata:
+    mov dx, 0x1F7
+    in al, dx
+
+    cmp al, 0xFF       ; nenhum dispositivo responde -> linha flutuante
+    je .no_ata
+
+    cmp al, 0x00       ; alguns chipsets retornam 0 quando não existe
+    je .no_ata
+
+    ; força um comando NOP (0x00) —> ATA real sempre responde com ERR
+    mov al, 0x00
+    out dx, al
+
+    ; delay de ~400ns exigido pelo ATA (4 reads consecutivas)
+    in al, dx
+    in al, dx
+    in al, dx
+    in al, dx
+
+    in al, dx
+
+    ; ERR bit (0x01) costuma setar com comando inválido
+    test al, 0x01
+    jnz .ata_ok
+
+    ; se não mudou e 0x00 ou 0xFF -> não existe
+    cmp al, 0xFF
+    je .no_ata
+
+    cmp al, 0x00
+    je .no_ata
+
+    ; se chegou aqui, o device tá respondendo
+.ata_ok:
+    mov byte [ATA_PRESENT], 1    
+    ret
+.no_ata:
+    mov byte [ATA_PRESENT], 0
+    ret
+
+; si = pointer to string
+bprintnf:
+    ; AH = 0x0E (teletype)
+    mov ah, 0x0E
+    mov bh, 0x00        ; page
+    mov bl, 0x07        ; attribute
+.next_char:
+    lodsb               ; AL = [SI], SI++
+    test al, al         ; chegou no '\0'?
+    jz .done
+
+    int 0x10            ; print AL
+    jmp .next_char
+.done:
+    ret
+
+ATA_PRESENT: db 0
+
+boot_msg db "boot image reached", 0dh, 0ah, 0
+no_ata_found_msg db "[ PANIC ] boot: ATA PIO not present", 0dh, 0ah, 0
 
 %include "source/Struct/gdt32.asm"
 
@@ -65,7 +139,21 @@ protected_mode:
     mov ebp, 0x1000
     mov esp, ebp
 
-    jmp PREKERNEL_ENTRY
+    cmp dword [PREKERNEL_ENTRY], 0xDEADBEEF
+    jne .invalid_kernel
+
+    mov eax, [PREKERNEL_ENTRY + 4]
+
+    test eax, eax
+    jz .invalid_kernel
+
+    cmp eax, 0x1000
+    jb .invalid_kernel
+
+    jmp eax
+.invalid_kernel:
+    cli
+    hlt
 
 BOOT_DISK: db 0
 
