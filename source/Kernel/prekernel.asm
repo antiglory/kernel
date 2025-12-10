@@ -1,9 +1,7 @@
-global pstart
+magic dd 0xDEADBEEF
+entry_ptr dd pstart
 
-global pml4_table
-global pdpt_table
-global pd_table
-global pt_tables
+global pstart
 
 [BITS 32]
 ; 0x1000
@@ -48,7 +46,7 @@ pstart:
 %include "source/Struct/gdt64.asm"
 
 setup_paging:
-    ; VA == PA; 0xffffffff80100000 -> 0x0000000000100000
+    ; VA == VO + PA; 0xffffffff80100000 -> 0x0000000000100000
     ; PML4 entries
     mov edi, pml4_table
     mov eax, pdpt_table
@@ -105,7 +103,7 @@ KERNEL_PHYSICAL_ENTRY equ 0x100000
 KERNEL_VIRTUAL_ENTRY  equ 0xFFFFFFFF80100000
 
 KERNEL_BLOCK_START equ 8
-KERNEL_BLOCK_COUNT equ 16
+KERNEL_BLOCK_COUNT equ 32 ; kernel size -> round up to ~0x1000/512
 
 [BITS 64]
 end:
@@ -125,7 +123,7 @@ end:
 
     cmp rdi, rsi
     jne .me_handler
-    
+
     jmp KERNEL_VIRTUAL_ENTRY
 .me_handler:
     ; if not equal -> mapping failed
@@ -183,12 +181,12 @@ load_kernel:
 
     mov ecx, 100000
 .wait_disk:
-    in al, dx
+    in al, dx           ; 0x1F7 -> status
 
-    test al, 0x80       ; check BSY bit (bit 7)
+    test al, 0x80       ; still busy?
     jnz .wait_disk      ; wait while busy
 
-    test al, 0x08       ; check DRQ bit (bit 3)
+    test al, 0x08       ; DRQ?
     jz .wait_disk       ; wait until data is ready
 .ready:
     ; read 512 bytes (256 words) of the block
@@ -224,16 +222,16 @@ pkprintnf:
 .e:
     ret
 
-DISK_ERROR_MSG   db "[ PANIC ] boot: disk read for kernel timeout!",   0x0
-MAP_ERROR_MSG    db "[ PANIC ] boot: failed to setup kernel PML4!",    0x0
+DISK_ERROR_MSG db "[ PANIC ] boot: disk read for kernel timeout!", 0dh, 0ah, 0
+MAP_ERROR_MSG db "[ PANIC ] boot: failed to setup kernel PML4!", 0dh, 0ah, 0
 
-PAGE_SIZE             equ 4096
-ENTRIES_PER_TABLE     equ 512
-PTE_PRESENT           equ 1
-PTE_WRITABLE          equ 2
+PAGE_SIZE          equ 4096
+ENTRIES_PER_TABLE  equ 512
+PTE_PRESENT        equ 1
+PTE_WRITABLE       equ 2
 
 align 4096
-pml4_table resb PAGE_SIZE
-pdpt_table resb PAGE_SIZE
-pd_table   resb PAGE_SIZE
-pt_tables  resb 512 * PAGE_SIZE ; tbh i think this is too much
+pml4_table  resb PAGE_SIZE
+pdpt_table  resb PAGE_SIZE
+pd_table    resb PAGE_SIZE
+pt_tables   resb 512 * PAGE_SIZE ; tbh i think this is too much?
