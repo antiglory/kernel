@@ -93,7 +93,7 @@ void init(void)
 
     kbrk_init();
     slab_init();
-    kprintf("kmalloc:kbrk OK\nkmalloc: slab OK\n");
+    kprintf("kmalloc: kbrk OK\nkmalloc: slab OK\n");
 
     init_fs();
     kprintf("system: ramfs OK\n");
@@ -124,3 +124,4 @@ void init(void)
 }
 
 #endif
+
