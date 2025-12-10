@@ -67,6 +67,8 @@ void kstart(void)
 }
 
 void kprintf(const unsigned char* str, ...);
+ssize_t write(int fd, const void* src, size_t size);
+ssize_t read(int fd, void* dest, size_t size);
 
 #include "modules/wrapper.h"
 #include "modules/io.h"
@@ -81,8 +83,27 @@ __attribute__((noreturn)) void panic(void)
 }
 
 #include "modules/threads.h"
+
+struct file;
+struct fops_t
+{
+    ssize_t (*read)(struct file* f, void* buf, size_t size);
+    ssize_t (*write)(struct file* f, const void* buf, size_t size);
+};
+
+struct file
+{
+    int fd;
+    int flags;
+    off_t offset;
+    int ref_count;
+    void* private_data;
+    struct fops_t* fops;
+};
+
 #include "modules/tty.h"
 #include "modules/sys.h"
+#include "modules/klib.h"
 #include "modules/init.h"
 
 void sleep(uint64_t ms)
@@ -104,18 +125,10 @@ void main(void)
 
     // dump_runqueue();
 
-    /*
+    char str[32];
     for (;;)
     {
-        // dump_runqueue();
-        kthread_yield();
-    }
-    */
-
-    char str[32];
-    while (1)
-    {
-	      kprintf("> ");
+        kprintf("> ");
         read(0, str, sizeof(str));
 
         if (strcmp(str, "ping") == 0)
