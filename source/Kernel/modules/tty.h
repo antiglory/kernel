@@ -126,6 +126,22 @@ void vga_clear(void)
     tty0.cursor_y = 0;
 }
 
+struct file* fd_lookup(int fd);
+void kputc(char c)
+{
+    struct file* f = fd_lookup(1);
+
+    if (f && f->fops->write)
+        write(1, &c, 1);
+    else
+        vga_pushc(c, 0); // fallback antes do FS existir
+}
+
+void kpopc(void)
+{
+    vga_popc();
+}
+
 // keyboard 
 struct keyboard_queue_t 
 {
@@ -175,7 +191,7 @@ static void ldisc_input(uint8_t al)
         thread_wake_one(&tty0.read_wq);
 
         if (tty0.echo)
-            vga_pushc('\n', 0);
+            kputc('\n');
 
         return;
     }
@@ -187,7 +203,7 @@ static void ldisc_input(uint8_t al)
             tty0.input[len - 1] = 0;
             
             if (tty0.echo)
-                vga_popc();
+                kpopc();
         }
         return;
     }
@@ -196,7 +212,7 @@ static void ldisc_input(uint8_t al)
     tty0.input[len + 1] = 0;
 
     if (tty0.echo)
-        vga_pushc(c, 0);
+        kputc(c);
 }
 
 void kb_driver(void* arg)
@@ -228,120 +244,4 @@ void kb_driver(void* arg)
     }
 }
 
-// old ----
-static void print_string(const char* s)
-{
-    for (int j = 0; s[j] != '\0'; j++)
-        vga_pushc(s[j], 0);
-}
-
-// kernel print formatted (almost)
-// i will change vga drivers usage to FDs functions like write()
-void kprintf(const unsigned char* str, ...)
-{
-    va_list args;
-    va_start(args, str);
-
-    for (int32_t i = 0; str[i] != '\0'; i++)
-    {
-        if (str[i] == '\n')
-            vga_pushc('\n', 0);
-        else if (str[i] == '%')
-        {
-            i++;
-
-            unsigned char format = str[i];
-            
-            if (format == 'p') // pointer
-            {
-                uintptr_t ptr_val = va_arg(args, uintptr_t);
-                
-                unsigned char hex_str[19];
-                hex_str[0] = '0';
-                hex_str[1] = 'x';
-                
-                for (int j = 0; j < 16; j++)
-                {
-                    int32_t nibble = (ptr_val >> (60 - j * 4)) & 0xF;
-
-                    if (nibble < 10)
-                        hex_str[j + 2] = '0' + nibble;
-                    else
-                        hex_str[j + 2] = 'a' + (nibble - 10);
-                }
-
-                hex_str[18] = '\0';
-
-                print_string(hex_str);
-            }
-            else if (format == 'x') // hex
-            {
-                unsigned int int_val = va_arg(args, unsigned int);
-                unsigned char hex_str[9];
-                
-                for (int j = 0; j < 8; j++)
-                {
-                    int32_t nibble = (int_val >> (28 - j * 4)) & 0xF;
-
-                    if (nibble < 10)
-                        hex_str[j] = '0' + nibble;
-                    else
-                        hex_str[j] = 'a' + (nibble - 10);
-                }
-
-                hex_str[8] = '\0';
-
-                print_string(hex_str);
-            }
-            else if (format == 'c') // char
-            {
-                unsigned char c = (unsigned char)va_arg(args, int);
-                vga_pushc(c, 0);
-            }
-            else if (format == 's') // string
-            {
-                const char* s = va_arg(args, const char*);
-                print_string(s);
-            }
-            else if (format == 'd') // signed decimal
-            {
-                int val = va_arg(args, int);
-
-                char buf[16];
-                int idx = 0;
-
-                if (val == 0)
-                    buf[idx++] = '0';
-                else
-                {
-                    if (val < 0)
-                    {
-                        vga_pushc('-', 0);
-                        val = -val;
-                    }
-
-                    // gera decimal ao contrário
-                    char tmp[16];
-                    int t = 0;
-
-                    while (val > 0)
-                    {
-                        tmp[t++] = '0' + (val % 10);
-                        val /= 10;
-                    }
-
-                    // inverte p/ ordem correta
-                    while (t--)
-                        buf[idx++] = tmp[t];
-                }
-
-                buf[idx] = '\0';
-                print_string(buf);
-            }
-        }
-        else
-            vga_pushc(str[i], 0);
-    }
-    
-    va_end(args);
-}
+#endif
