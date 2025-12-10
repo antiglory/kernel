@@ -21,9 +21,7 @@ static inline uint8_t test_access(const void* addr)
 void init_stub()
 {
     sti();
-
     kprintf("kthread: main OK\n");
-  
     main();
 }
 
@@ -49,10 +47,7 @@ void init(void)
     tty0.cursor_x = 0;
     tty0.cursor_y = 0;
     tty0.vga_flush();
-  
-    kprintf("system: tty0 OK\n");
-
-    kprintf("system: idt OK\nsystem: pic OK\nsystem: pit OK\n");
+    kprintf("system: tty0 OK\nsystem: idt OK\nsystem: pic OK\nsystem: pit OK\n");
 
     kprintf("memory test...\n");
 
@@ -98,7 +93,10 @@ void init(void)
 
     kbrk_init();
     slab_init();
-    kprintf("kmalloc: kbrk OK\nkmalloc: slab OK\n");
+    kprintf("kmalloc:kbrk OK\nkmalloc: slab OK\n");
+
+    init_fs();
+    kprintf("system: ramfs OK\n");
 
     kthread_subsystem_init();
     kprintf("kthread: subsystem OK\n");
@@ -122,10 +120,7 @@ void init(void)
     kb_queue.tail = 0;
     kb_queue.count = 0;
 
-    init_fs();
-    
-    kprintf("ramfs: fs OK\n");
-
     kthread_start_scheduler(); // idle() -> ... -> init_stub() -> main()
 }
+
 #endif
