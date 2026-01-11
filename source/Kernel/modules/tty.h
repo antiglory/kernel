@@ -220,26 +220,26 @@ void kb_driver(void* arg)
     (void)arg;
     for (;;)
     {
-        cli(); // prevents race condition to kb buffer
+        cli();
 
-        if (kb_queue.count > 0)
+        if (kb_queue.count == 0)
         {
+            sti();
+            thread_sleep(&kb_thread);
+            
+            continue;
+        }
+        
+        while (kb_queue.count > 0)
+        {
+            cli();
+
             uint8_t scancode = kb_queue.buffer[kb_queue.tail];
             kb_queue.tail = (kb_queue.tail + 1) % 256;
             kb_queue.count--;
             ldisc_input(scancode);
       
             sti();
-
-            // dump_runqueue();
-            thread_sleep(&kb_thread);
-        } 
-        else
-        {
-            sti();
-            
-            // dump_runqueue();
-            thread_sleep(&kb_thread);
         }
     }
 }
