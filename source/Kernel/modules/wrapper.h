@@ -26,6 +26,14 @@ inline void halt(void)
     __builtin_unreachable();
 }
 
+inline void safe_halt(void)
+{
+    asm volatile(
+        "sti\n\t"
+        "hlt\n\t"
+    );
+}
+
 inline void outb(uint16_t port, uint8_t value)
 {
     asm volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
