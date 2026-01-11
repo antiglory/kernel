@@ -71,6 +71,7 @@ ssize_t write(int fd, const void* src, size_t size);
 ssize_t read(int fd, void* dest, size_t size);
 
 #include "modules/wrapper.h"
+// #include "modules/spinlock.h"
 #include "modules/io.h"
 #include "modules/string.h"
 #include "modules/alloc.h"
@@ -110,10 +111,9 @@ void sleep(uint64_t ms)
 {
     uint64_t target = cpu_ticks + ms / 10;
     
-    sti();
     while (cpu_ticks < target)
     {
-        asm volatile("hlt");
+        safe_halt();
     }
 }
 
@@ -123,9 +123,8 @@ void main(void)
     asm volatile("int $0xF0"); // beep
     kprintf("\nv0 is alive!\n");
 
-    // dump_runqueue();
-
     char str[32];
+    
     for (;;)
     {
         kprintf("> ");
