@@ -17,6 +17,47 @@ a basic kernel made to x86
 ## VGA
 - `0xb8000` as always
 - due to VA == PA -> VGA is virtually mapped to `~0xffffffff000b8000`
+## Threading
+- kernel thread creation
+- cooperative (non-preemptive) round-robin scheduling
+- context switching in System V ABI–oriented (x86_64)
+- wait queues
+- counting semaphores
+- a dedicated idle thread
+- all threads share the same address space and heap
+### Thread States
+- UNUSED -> slot available
+- RUNNABLE -> eligible to run
+- RUNNING -> currently executing
+- BLOCKED -> sleeping on a wait queue
+- ZOMBIE -> finished execution, pending cleanup
+### Run queue
+- O(1) enqueue
+- O(1) next-thread selection
+- TODO priority handling
+- cooperative only
+- every thread yields explicitly via `kthread_yield()`
+### Context Switching
+- made by `void context_switch(uint64_t** old_sp, uint64_t* new_sp)`
+- push callee-saved registers
+- store current `RSP` into `*old_sp`
+- load `new_sp` into `RSP`
+- restore registers
+- `ret` into the new thread context
+### Thread Stack Layout
+| top                     |
+| ----------------------- |
+| r15                     |
+| r14                     |
+| r13                     |
+| r12                     |
+| rbx                     |
+| rbp                     |
+| return -> kthread_entry |
+| arg                     |
+| fn                      |
+| **bottom**              |
+- SP is aligned to 16 bytes
 ## Devices
 ### TTY
 - (console driver) vga_putc() e vga_popc() -> who actually handles with the screen
