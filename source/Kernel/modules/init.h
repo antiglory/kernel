@@ -6,7 +6,7 @@
 #include "init/pic.h"
 #include "init/pit.h"
 
-static inline uint8_t test_access(const void* addr)
+inline uint8_t test_access(const void* addr)
 {
     uint8_t val;
     asm volatile(
@@ -16,6 +16,54 @@ static inline uint8_t test_access(const void* addr)
         : "memory"
     );
     return val;
+}
+
+void test_all_access()
+{
+    kprintf("memory test...\n");
+
+    test_access(_kernel_text_start);
+    kprintf("  .text: %p OK\n", _kernel_text_start);
+
+    test_access(_kernel_rodata_start);
+    kprintf("  .rodata: %p OK\n", _kernel_rodata_start);  
+
+    test_access(_kernel_data_start);
+    kprintf("  .data: %p OK\n", _kernel_data_start);
+
+    test_access(_kernel_bss_start);
+    kprintf("  .bss: %p OK\n", _kernel_bss_start);
+
+    test_access(_kernel_stack_start);
+    kprintf("  .stack: %p OK\n", _kernel_stack_start);
+
+    test_access(_kernel_heap_start);
+    kprintf("  .heap: %p OK\n", _kernel_heap_start);
+
+    test_access(tty0.vga);
+    kprintf("  vga: %p OK\n", tty0.vga);
+
+    kprintf("stack test...\n");
+    
+    void* rsp;
+    void* rbp;  
+    asm volatile ("movq %%rsp, %0" : "=r" (rsp) : :);
+    asm volatile ("movq %%rbp, %0" : "=r" (rbp) : :);
+  
+    if ((bool)((uint64_t)rsp & 0xF) == 0)
+       kprintf("  stack top %p OK\n", rsp);
+    else
+    {
+       kprintf("  stack top %p NOT OK\n", rsp);
+       panic();
+    }
+    if ((bool)((uint64_t)rsp & 0xF) == 0)
+        kprintf("  stack bottom %p OK\n", rbp);
+    else
+    {
+        kprintf("  stack bottom %p NOT OK\n", rbp);
+        panic();
+    }
 }
 
 void init_stub()
@@ -47,49 +95,9 @@ void init(void)
     tty0.cursor_x = 0;
     tty0.cursor_y = 0;
     tty0.vga_flush();
-    kprintf("system: tty0 OK\nsystem: idt OK\nsystem: pic OK\nsystem: pit OK\n");
+    kprintf("system: pic OK\nsystem: pit OK\nsystem: idt64 OK\nsystem: tty OK\n");
 
-    kprintf("memory test...\n");
-
-    test_access(_kernel_text_start);
-    kprintf("  .text: %p OK\n", _kernel_text_start);
-
-    test_access(_kernel_rodata_start);
-    kprintf("  .rodata: %p OK\n", _kernel_rodata_start);  
-
-    test_access(_kernel_data_start);
-    kprintf("  .data: %p OK\n", _kernel_data_start);
-
-    test_access(_kernel_bss_start);
-    kprintf("  .bss: %p OK\n", _kernel_bss_start);
-
-    test_access(_kernel_stack_start);
-    kprintf("  .stack: %p OK\n", _kernel_stack_start);
-
-    test_access(_kernel_heap_start);
-    kprintf("  .heap: %p OK\n", _kernel_heap_start);
-
-    kprintf("stack test...\n");
-    
-    void* rsp;
-    void* rbp;  
-    asm volatile ("movq %%rsp, %0" : "=r" (rsp) : :);
-    asm volatile ("movq %%rbp, %0" : "=r" (rbp) : :);
-  
-    if ((bool)((uint64_t)rsp & 0xF) == 0)
-       kprintf("  stack top %p OK\n", rsp);
-    else
-    {
-       kprintf("  stack top %p NOT OK\n", rsp);
-       panic();
-    }
-    if ((bool)((uint64_t)rsp & 0xF) == 0)
-        kprintf("  stack bottom %p OK\n", rbp);
-    else
-    {
-        kprintf("  stack bottom %p NOT OK\n", rbp);
-        panic();
-    }
+    test_all_access();
 
     kbrk_init();
     slab_init();
@@ -124,4 +132,3 @@ void init(void)
 }
 
 #endif
-
