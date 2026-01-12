@@ -5,7 +5,6 @@ a basic kernel made to x86
 
 # Boot
 # Prekernel
-- https://chatgpt.com/c/69273a2d-ff88-8332-8ac7-70296ca9ac70
 # Kernel
 ## PML4
 - 4 KiB pages (PTE) for each section (.text, .rodata, .data, .bss etc).
