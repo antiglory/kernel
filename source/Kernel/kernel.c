@@ -6,6 +6,8 @@
  *    - timer
  */
 
+// mudei:
+
 // 0xffffffff80000000 - 0xffffffff80200000
 #include <stdint.h>
 #include <stdarg.h>
@@ -117,6 +119,37 @@ void sleep(uint64_t ms)
     }
 }
 
+#define MAX_TOKENS 8
+
+// mini parser for user input
+int32_t tokenize(char* input, char* tokens[], int max_tokens)
+{
+    int32_t count = 0;
+
+    while (*input == ' ' || *input == '\t')
+        input++;
+
+    while (*input && count < max_tokens)
+    {
+        tokens[count++] = input;
+
+        // anda até próximo espaço ou final
+        while (*input && *input != ' ' && *input != '\t')
+            input++;
+
+        if (*input)
+        {
+            *input = '\0';
+            input++;
+            
+            while (*input == ' ' || *input == '\t')
+                input++;
+        }
+    }
+
+    return count;
+}
+
 // .text -> 0xffffffff80100100
 void main(void)
 {
@@ -125,16 +158,33 @@ void main(void)
 
     char str[32];
     
+    char* argv[MAX_TOKENS];
+    int argc;
+
     for (;;)
     {
         kprintf("> ");
         read(0, str, sizeof(str));
 
-        if (strcmp(str, "ping") == 0)
-            kprintf("pong\n");
-        else if (strcmp(str, "halt") == 0)
-            halt();
+        argc = tokenize(str, argv, MAX_TOKENS);
+        if (argc == 0) continue;
 
-        // kthread_yield();
+        if (strcmp(argv[0], "ping") == 0)
+            kprintf("pong\n");
+        else if (strcmp(argv[0], "halt") == 0)
+            halt();
+        else if (strcmp(argv[0], "debug") == 0)
+        {
+            if (argc <= 1);
+            else
+            {
+                if (strcmp(argv[1], "runqueue") == 0)
+                    dump_runqueue();
+                else if (strcmp(argv[1], "testmem") == 0)
+                    test_all_access();
+            }
+        }
     }
+
+    // kthread_yield();
 }
