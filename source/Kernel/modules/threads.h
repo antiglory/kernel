@@ -31,15 +31,15 @@ typedef struct waitq
 
 typedef struct kthread
 {
-    struct kthread*        next;
-           int             id;
-           thread_state_t  state;
-           uint8_t*        stack;     // base pointer allocated
-           uint64_t*       sp;
-           void            (*fn)(void*);
-           void*           arg;
-           int             exit_code;
-           char            name[32];
+    struct kthread* next;
+    int id;
+    thread_state_t state;
+    uint8_t* stack;     // base pointer allocated
+    uint64_t* sp;
+    void (*fn)(void*);
+    void* arg;
+    int exit_code;
+    char name[32];
 } kthread_t;
 
 static kthread_t thread_table[MAX_THREADS];
@@ -134,7 +134,7 @@ static void dump_thread_sp(kthread_t* t)
 }
 */
 
-static inline uint64_t *prepare_stack(
+static inline uint64_t* prepare_stack(
     void (*fn)(void*), void* arg, 
     void* stack_base, size_t stack_size
 )
@@ -463,6 +463,7 @@ static void idle_thread_fn(void* arg)
 
     for(;;)
     {
+        safe_halt();
         kthread_yield();
     }
 }
@@ -471,9 +472,11 @@ void kthread_subsystem_init(void)
 {
     memset(thread_table, 0, sizeof(thread_table));
     
-    for (int i = 0; i < MAX_THREADS; ++i) 
+    for (int i = 0; i < MAX_THREADS; ++i)
+    {
         thread_table[i].state = THREAD_UNUSED;
-    
+    }  
+
     kthread_create(idle_thread_fn, NULL, "idle");
 }
 
