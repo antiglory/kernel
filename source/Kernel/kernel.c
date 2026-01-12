@@ -6,8 +6,6 @@
  *    - timer
  */
 
-// mudei:
-
 // 0xffffffff80000000 - 0xffffffff80200000
 #include <stdint.h>
 #include <stdarg.h>
@@ -156,18 +154,18 @@ void main(void)
     asm volatile("int $0xF0"); // beep
     kprintf("\nv0 is alive!\n");
 
-    char str[32];
-    
-    char* argv[MAX_TOKENS];
-    int argc;
+    char* str = kmalloc(32 * sizeof(char));
+
+    char** argv = kmalloc(MAX_TOKENS * sizeof(char));
+    int* argc = kmalloc(sizeof(int));
 
     for (;;)
     {
         kprintf("> ");
         read(0, str, sizeof(str));
 
-        argc = tokenize(str, argv, MAX_TOKENS);
-        if (argc == 0) continue;
+        *argc = tokenize(str, argv, MAX_TOKENS);
+        if (*argc == 0) continue;
 
         if (strcmp(argv[0], "ping") == 0)
             kprintf("pong\n");
@@ -175,7 +173,7 @@ void main(void)
             halt();
         else if (strcmp(argv[0], "debug") == 0)
         {
-            if (argc <= 1);
+            if (*argc <= 1);
             else
             {
                 if (strcmp(argv[1], "runqueue") == 0)
@@ -185,6 +183,10 @@ void main(void)
             }
         }
     }
+
+    kfree(str);
+    kfree(argv);
+    kfree(argc);
 
     // kthread_yield();
 }
